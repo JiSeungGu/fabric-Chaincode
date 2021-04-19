@@ -1,4 +1,4 @@
-module github.com/erc20
+module example.org/chaincode
 
 go 1.13
 
@@ -11,7 +11,7 @@ require (
 	github.com/hyperledger/fabric v1.4.4
 	github.com/hyperledger/fabric-amcl v0.0.0-20190902191507-f66264322317 // indirect
 	github.com/miekg/pkcs11 v1.0.3 // indirect
-	github.com/onsi/ginkgo v1.15.2 // indirect
+	github.com/onsi/ginkgo v1.16.1 // indirect
 	github.com/onsi/gomega v1.11.0 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
 	github.com/spf13/viper v1.5.0 // indirect
