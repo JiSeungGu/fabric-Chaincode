@@ -69,7 +69,8 @@ func (cc *Chaincode) Invoke(stub shim.ChaincodeStubInterface) sc.Response {
 	case "burn":
 		return cc.Burn(stub, params)
 	default:
-		return shim.Error("함수를 찾을 수 없습니다.")
+		return sc.Response{Status: 404, Message: "함수를 찾을 수 없습니다", Payload: nil}
+		//return shim.Error("함수를 찾을 수 없습니다.")
 	}
 }
 
