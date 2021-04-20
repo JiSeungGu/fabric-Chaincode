@@ -1,11 +1,11 @@
 ***GetArgs 는 이중배열로 들어온다.***
->>>	args := stub.GetArgs()
->>>	fmt.Println("GetArgs(): ")
->>>	for _, arg := range args {
->>>		argStr := string(arg)
->>>		fmt.Printf("%s", argStr)
->>>	}
->>>	fmt.Println() // totalSupply dappcampus 서울특별시
+>>>	args := stub.GetArgs()  <br>
+>>>	fmt.Println("GetArgs(): ") <br>
+>>>	for _, arg := range args { <br>
+>>>		argStr := string(arg) <br> 
+>>>		fmt.Printf("%s", argStr) <br>
+>>>	} <br>
+>>>	fmt.Println() // totalSupply dappcampus 서울특별시<br>
 
 ***GetStringArgs()스트링 배열로 들어온다.***
 	stringArgs := stub.GetStringArgs()
