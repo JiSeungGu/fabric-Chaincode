@@ -25,6 +25,19 @@ type ERC20Metadata struct {
 	TotalSupply uint64 `json:"totalSupply"`
 }
 
+// TransferEvent is the event definition of Transfer
+type TransferEvent struct {
+	Sender    string `json:"sender"`
+	Recipient string `json:"recipient"`
+	Amount    int    `json:"amount"`
+}
+
+type Approval struct {
+	Owner     string `json:"owner"`
+	Spender   string `json:"spender"`
+	Allowance int    `json:"allowance"`
+}
+
 // Init is called when the chaincode is instantiated by the blockchain network.
 // Init 을 하기 위해 params - tokenName, symbol,  owner (주인) , amount (얼마 만큼 발행할 것 인지)
 func (cc *Chaincode) Init(stub shim.ChaincodeStubInterface) sc.Response {
@@ -235,20 +248,212 @@ func (cc *Chaincode) Transfer(stub shim.ChaincodeStubInterface, params []string)
 
 	/** 실수한 부분
 		-끝나기전에 이벤트를 발생시켜줘야한다.
-	 **/
+	**/
+	transferEvent := TransferEvent{Sender: callerAddress, Recipient: recipientAddress, Amount: transferAmount}
+	treasferEventByte, err := json.Marshal(transferEvent)
+	if err != nil {
+		return shim.Error("faile to Marshal, error  :" + err.Error())
+	}
+	err = stub.SetEvent("transferEvent", treasferEventByte)
+	if err != nil {
+		return shim.Error("faile to tranferEvent setEvent, error :" + err.Error())
+	}
 
-	return shim.Success(nil)
+	fmt.Println(callerAddress+" 가 <", transferAmount, "> 을 "+recipientAddress+" 에게 보냈습니다.")
+
+	return shim.Success([]byte("transfer Success"))
 }
+
+// allowance is query function
+// params - owner's address, spedner's address
+// Returns the remaining amount of token to invoke (transferFrom에 의해서 불려지고 남은 양의 토큰)
 func (cc *Chaincode) Allowance(stub shim.ChaincodeStubInterface, params []string) sc.Response {
-	return shim.Success(nil)
+
+	// check the number of params is 2
+	if len(params) != 2 {
+		return shim.Error("Incorrect number of params")
+	}
+
+	ownerAddress, spenderAddress := params[0], params[1]
+
+	// create composite key
+	approvalKey, err := stub.CreateCompositeKey("approval", []string{ownerAddress, spenderAddress})
+	if err != nil {
+		return shim.Error("failed to CreateCompositeKey allowance")
+	}
+
+	// get amount
+	amountBytes, err := stub.GetState(approvalKey)
+	if err != nil {
+		return shim.Error("failed to GetState approvalKey, error :" + err.Error())
+	}
+	if amountBytes == nil {
+		amountBytes = []byte("0")
+	}
+	return shim.Success(amountBytes)
 }
+
+// approve is inovke function that Sets amount as the allowance
+// owner의 토큰을 spender가 사용하게 한다
+// params - owner's address, spender's address, amount of token
 func (cc *Chaincode) Approve(stub shim.ChaincodeStubInterface, params []string) sc.Response {
+
+	if len(params) != 3 {
+		return shim.Error("Incorrect number of params")
+	}
+	ownerAddress, spenderAddress, Amount := params[0], params[1], params[2]
+
+	AmountInt, err := strconv.Atoi(Amount)
+	if err != nil {
+		return shim.Error("failed to strconv, error  :" + err.Error())
+	}
+	if AmountInt <= 0 {
+		return shim.Error("allowance amount must be positive")
+	}
+
+	// create composite key for allowance - approval/{owner}/{spender}
+	approvalKey, err := stub.CreateCompositeKey("approval", []string{ownerAddress, spenderAddress})
+	if err != nil {
+		return shim.Error("failed to CreateCompositeKey for approval")
+	}
+
+	// save allowance amount
+	err = stub.PutState(approvalKey, []byte(Amount))
+	if err != nil {
+		return shim.Error("failed to PutState into Stub, error :" + err.Error())
+	}
+
+	// emit approval event
+	ApprovalEvent := Approval{Owner: ownerAddress, Spender: spenderAddress, Allowance: AmountInt}
+	ApprovalEventBytes, err := json.Marshal(ApprovalEvent)
+	if err != nil {
+		return shim.Error("failed to Approval Marshal, error :" + err.Error())
+	}
+	err = stub.SetEvent("approvalEvent", ApprovalEventBytes)
+	if err != nil {
+		return shim.Error("failed to approval SetEvent, error :" + err.Error())
+	}
 	return shim.Success(nil)
 }
+
 func (cc *Chaincode) ApprovalList(stub shim.ChaincodeStubInterface, params []string) sc.Response {
-	return shim.Success(nil)
+	// check number of params
+	if len(params) != 1 {
+		return shim.Error("Incorrect number of params")
+	}
+	ownerAddress := params[0]
+
+	approvalIterator, err := stub.GetStateByPartialCompositeKey("approval", []string{ownerAddress})
+
+	if err != nil {
+		return shim.Error("failed to GetCompositedKey, error :" + err.Error())
+	}
+
+	approvalSlice := []Approval{}
+
+	defer approvalIterator.Close()
+	if approvalIterator.HasNext() {
+		for approvalIterator.HasNext() {
+			ApprovalKV, _ := approvalIterator.Next()
+
+			//get spender address
+			test, addresses, err := stub.SplitCompositeKey(ApprovalKV.GetKey())
+			fmt.Println("SplitCompositeKey return 값중 맨처음 값  : " + test)
+			fmt.Println("SplitCompositeKey의 .GetNamespace", ApprovalKV.GetNamespace())
+			fmt.Println("SplitCompositeKey의 .GetKey", ApprovalKV.GetValue())
+			if err != nil {
+				return shim.Error("failed to SplitCompositeKey, error :" + err.Error())
+			}
+
+			spenderAddress := addresses[1]
+			amountBytes := ApprovalKV.GetValue()
+			fmt.Println("SplitCompositeKey의 .GetKey", amountBytes)
+			amountInt, err := strconv.Atoi(string(amountBytes))
+			fmt.Println("SplitCompositeKey의 .GetKey", amountInt)
+			if err != nil {
+				return shim.Error("failed to get amount, error :" + err.Error())
+			}
+
+			// add approval result
+			approval := Approval{Owner: ownerAddress, Spender: spenderAddress, Allowance: amountInt}
+			approvalSlice = append(approvalSlice, approval)
+		}
+	}
+
+	// convert approvalSlice to bytes for return
+	response, err := json.Marshal(approvalSlice)
+	if err != nil {
+		return shim.Error("failed to Marshal approvalSlice, error " + err.Error())
+	}
+	return shim.Success(response)
 }
+
+// TransferFrom 은 invok함수 이고
+// params에는 '은행' <- owner'sAdderss , '보내는사람' <- spender'sAddress, '받는사람' recipient'sAdderss , '보내는 금액' Amount가 필요하다.
 func (cc *Chaincode) TransferFrom(stub shim.ChaincodeStubInterface, params []string) sc.Response {
+
+	if len(params) != 4 {
+		return shim.Error("Incorrect number of params")
+	}
+
+	ownerAddress, spenderAddress, recipientAddress, transferAmount := params[0], params[1], params[2], params[3]
+
+	transferAmountInt, err := strconv.Atoi(transferAmount)
+	if err != nil {
+		return shim.Error("Amount must be Integer")
+	}
+	if transferAmountInt < 0 {
+		return shim.Error("Amount must be Positive")
+	}
+
+	//get allowance
+	allowanceResponse := cc.Allowance(stub, []string{ownerAddress, spenderAddress})
+	//함수 호출로 인한 Return값은 에러확인용 GetStatus()로 받아야한다.
+	if allowanceResponse.GetStatus() >= 400 {
+		return shim.Error("failed to get allowance, error : " + allowanceResponse.GetMessage())
+	}
+
+	// convert allowance response playload to allowance data
+	allowanceInt, err := strconv.Atoi(string(allowanceResponse.GetPayload()))
+	if err != nil {
+		return shim.Error("failed to strconv.Atoi, error :" + err.Error())
+	}
+	//보내는 사람의 돈이  그 금액 만큼 있는 지 확인 하는 부분
+	spenderAmountInt := allowanceInt - transferAmountInt
+	if spenderAmountInt <= 0 {
+		return shim.Error("spenderAddress amount must be positive")
+	}
+
+	// transfer from owner to recipient
+	cc.Transfer(stub, []string{ownerAddress, recipientAddress, transferAmount})
+
+	// decrease allowance amount
+
+	// -----> create composite key for allowance - approval/{owner}/{spender}
+	approvalKey, err := stub.CreateCompositeKey("approval", []string{ownerAddress, spenderAddress})
+	if err != nil {
+		return shim.Error("failed to CreateCompositeKey for approval")
+	}
+
+	// -----> save allowance amount
+	approvalAmount, err := stub.GetState(approvalKey)
+	if err != nil {
+		return shim.Error("failed to PutState into Stub, error :" + err.Error())
+	}
+
+	approvalAmountInt, err := strconv.Atoi(string(approvalAmount))
+	if err != nil {
+		return shim.Error("failed to strconv.Atoi, error :" + err.Error())
+	}
+	approvalAmountIntChange := approvalAmountInt - transferAmountInt
+	err = stub.PutState(approvalKey, []byte(string(approvalAmountIntChange)))
+	if err != nil {
+		return shim.Error("failed to approvalKey putState, error  " + err.Error())
+	}
+
+	// approve amount of tokens transfered
+	cc.Approve(stub, []string{ownerAddress, spenderAddress, strconv.Itoa(spenderAmountInt)})
+
 	return shim.Success(nil)
 }
 func (cc *Chaincode) TransferOtherToken(stub shim.ChaincodeStubInterface, params []string) sc.Response {
